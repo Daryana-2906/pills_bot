@@ -7,6 +7,7 @@ import asyncio
 import threading
 import time
 import os
+from urllib.parse import urlparse
 from dotenv import load_dotenv
 
 # Загрузка переменных окружения
@@ -22,35 +23,38 @@ logger = logging.getLogger(__name__)
 # Состояния для ConversationHandler
 MEDICINE_NAME, DOSAGE, TIME, FREQUENCY = range(4)
 
-# Параметры подключения к PostgreSQL
-def get_db_connection():
-    database_url = os.environ.get('DATABASE_URL')
-    
-    if database_url:
-        # Просто используем полный URL
-        return psycopg2.connect(database_url, sslmode='require')
-    else:
-        # Локальная разработка
-        return psycopg2.connect(
-            host='localhost',
-            database='medications_bot', 
-            user='postgres',
-            password='password',
-            port=5432
-        )
-
-
 BOT_TOKEN = os.getenv('BOT_TOKEN')
 if not BOT_TOKEN:
     raise ValueError("BOT_TOKEN не установлен в переменных окружения")
 
-# Глобальная переменная для хранения экземпляра приложения
-application_instance = None
+# Функция для получения подключения к БД
+def get_db_connection():
+    database_url = os.environ.get('DATABASE_URL')
+    
+    if database_url:
+        try:
+            # Подключаемся к облачной БД на Railway
+            conn = psycopg2.connect(database_url, sslmode='require')
+            logger.info("Успешное подключение к облачной PostgreSQL")
+            return conn
+        except Exception as e:
+            logger.error(f"Ошибка подключения к облачной БД: {e}")
+            raise
+    else:
+        # Локальная разработка (только для тестирования)
+        logger.info("Использую локальную БД для разработки")
+        return psycopg2.connect(
+            host=os.getenv('DB_HOST', 'localhost'),
+            database=os.getenv('DB_NAME', 'medications_bot'),
+            user=os.getenv('DB_USER', 'postgres'), 
+            password=os.getenv('DB_PASSWORD', 'password'),
+            port=os.getenv('DB_PORT', '5432')
+        )
 
 # Инициализация базы данных
 def init_db():
     try:
-        conn = psycopg2.connect(**DB_CONFIG)
+        conn = get_db_connection()
         cursor = conn.cursor()
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS medications (
@@ -72,6 +76,7 @@ def init_db():
         logger.info("База данных инициализирована успешно")
     except Exception as e:
         logger.error(f"Ошибка инициализации базы данных: {e}")
+
 
 # Функция для получения подключения к БД
 def get_db_connection():
