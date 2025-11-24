@@ -7,7 +7,6 @@ import asyncio
 import threading
 import time
 import os
-from urllib.parse import urlparse
 from dotenv import load_dotenv
 
 # Загрузка переменных окружения
@@ -27,22 +26,23 @@ BOT_TOKEN = os.getenv('BOT_TOKEN')
 if not BOT_TOKEN:
     raise ValueError("BOT_TOKEN не установлен в переменных окружения")
 
+# Глобальная переменная для хранения экземпляра приложения
+application_instance = None
+
 # Функция для получения подключения к БД
 def get_db_connection():
     database_url = os.environ.get('DATABASE_URL')
     
     if database_url:
         try:
-            # Подключаемся к облачной БД на Railway
+            # Подключаемся к облачной БД
             conn = psycopg2.connect(database_url, sslmode='require')
-            logger.info("Успешное подключение к облачной PostgreSQL")
             return conn
         except Exception as e:
-            logger.error(f"Ошибка подключения к облачной БД: {e}")
+            logger.error(f"Ошибка подключения к БД: {e}")
             raise
     else:
-        # Локальная разработка (только для тестирования)
-        logger.info("Использую локальную БД для разработки")
+        # Локальная разработка
         return psycopg2.connect(
             host=os.getenv('DB_HOST', 'localhost'),
             database=os.getenv('DB_NAME', 'medications_bot'),
@@ -77,15 +77,6 @@ def init_db():
     except Exception as e:
         logger.error(f"Ошибка инициализации базы данных: {e}")
 
-
-# Функция для получения подключения к БД
-def get_db_connection():
-    try:
-        return psycopg2.connect(**DB_CONFIG)
-    except Exception as e:
-        logger.error(f"Ошибка подключения к базе данных: {e}")
-        raise
-
 # Команда /start
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.message.from_user
@@ -119,7 +110,6 @@ async def get_dosage(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def get_time(update: Update, context: ContextTypes.DEFAULT_TYPE):
     time_str = update.message.text
     try:
-        # Проверка формата времени
         datetime.strptime(time_str, '%H:%M')
         context.user_data['time'] = time_str
         await update.message.reply_text(
@@ -147,7 +137,6 @@ async def get_frequency(update: Update, context: ContextTypes.DEFAULT_TYPE):
     frequency = frequency_map.get(frequency_choice, 'daily')
     context.user_data['frequency'] = frequency
     
-    # Сохранение в базу данных
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
@@ -174,7 +163,7 @@ async def get_frequency(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
     except Exception as e:
         logger.error(f"Ошибка при добавлении лекарства: {e}")
-        await update.message.reply_text('Произошла ошибка при добавлении лекарства. Попробуйте позже.')
+        await update.message.reply_text('Произошла ошибка при добавлении лекарства.')
     
     return ConversationHandler.END
 
@@ -293,7 +282,6 @@ async def handle_text_messages(update: Update, context: ContextTypes.DEFAULT_TYP
 
 # Функция для отправки уведомлений (синхронная версия)
 def send_notifications_sync():
-    """Синхронная версия функции отправки уведомлений"""
     logger.info("Сервис уведомлений запущен")
     
     while True:
@@ -325,7 +313,6 @@ def send_notifications_sync():
                         should_notify = True
                     elif frequency == 'once':
                         should_notify = True
-                        # После отправки деактивируем одноразовое напоминание
                         cursor.execute('UPDATE medications SET active = FALSE WHERE id = %s', (med_id,))
                     elif frequency == 'weekdays' and current_weekday < 5:
                         should_notify = True
@@ -334,7 +321,6 @@ def send_notifications_sync():
                     
                     if should_notify and application_instance:
                         try:
-                            # Используем run_coroutine_threadsafe для отправки сообщения
                             future = asyncio.run_coroutine_threadsafe(
                                 application_instance.bot.send_message(
                                     chat_id=user_id,
@@ -342,7 +328,7 @@ def send_notifications_sync():
                                 ),
                                 application_instance._get_running_loop()
                             )
-                            future.result(timeout=10)  # Ждем результат 10 секунд
+                            future.result(timeout=10)
                             logger.info(f"Уведомление отправлено пользователю {user_id}")
                         except Exception as e:
                             logger.error(f"Ошибка отправки уведомления пользователю {user_id}: {e}")
@@ -353,11 +339,10 @@ def send_notifications_sync():
         except Exception as e:
             logger.error(f"Ошибка в системе уведомлений: {e}")
         
-        time.sleep(60)  # Проверка каждую минуту
+        time.sleep(60)
 
 # Запуск системы уведомлений в отдельном потоке
 def start_notification_service():
-    """Запуск сервиса уведомлений в отдельном потоке"""
     thread = threading.Thread(target=send_notifications_sync, daemon=True)
     thread.start()
     logger.info("Сервис уведомлений запущен в отдельном потоке")
