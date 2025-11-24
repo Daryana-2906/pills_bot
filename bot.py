@@ -23,14 +23,22 @@ logger = logging.getLogger(__name__)
 MEDICINE_NAME, DOSAGE, TIME, FREQUENCY = range(4)
 
 # Параметры подключения к PostgreSQL
-# В коде бота используйте переменные Railway:
-DB_CONFIG = {
-    'host': os.environ.get('DATABASE_URL', 'localhost').split('@')[1].split(':')[0],
-    'database': os.environ.get('DATABASE_URL', 'localhost').split('/')[-1],
-    'user': os.environ.get('DATABASE_URL', 'postgres').split('://')[1].split(':')[0],
-    'password': os.environ.get('DATABASE_URL', 'password').split('://')[1].split(':')[1].split('@')[0],
-    'port': 5432
-}
+def get_db_connection():
+    database_url = os.environ.get('DATABASE_URL')
+    
+    if database_url:
+        # Просто используем полный URL
+        return psycopg2.connect(database_url, sslmode='require')
+    else:
+        # Локальная разработка
+        return psycopg2.connect(
+            host='localhost',
+            database='medications_bot', 
+            user='postgres',
+            password='password',
+            port=5432
+        )
+
 
 BOT_TOKEN = os.getenv('BOT_TOKEN')
 if not BOT_TOKEN:
